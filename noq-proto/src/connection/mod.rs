@@ -5516,11 +5516,22 @@ impl Connection {
                     };
 
                     let round_before = server_state.current_round();
+                    let announced = SocketAddr::new(reach_out.ip, reach_out.port);
 
-                    if let Err(err) = server_state.handle_reach_out(reach_out, ipv6) {
-                        return Err(TransportError::PROTOCOL_VIOLATION(format!(
-                            "Nat traversal(REACH_OUT): {err}"
-                        )));
+                    match server_state.handle_reach_out(reach_out, ipv6) {
+                        Ok(true) => {
+                            // Let the application know which addresses the client claims,
+                            // like ADD_ADDRESS does on the client side.
+                            self.events.push_back(Event::NatTraversal(
+                                n0_nat_traversal::Event::AddressAdded(announced),
+                            ));
+                        }
+                        Ok(false) => {}
+                        Err(err) => {
+                            return Err(TransportError::PROTOCOL_VIOLATION(format!(
+                                "Nat traversal(REACH_OUT): {err}"
+                            )));
+                        }
                     }
 
                     if server_state.current_round() > round_before {

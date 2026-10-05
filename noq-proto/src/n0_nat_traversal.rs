@@ -132,7 +132,8 @@ pub enum Error {
     Closed,
 }
 
-/// Event emitted when the client receives ADD_ADDRESS or REMOVE_ADDRESS frames.
+/// Event emitted when the client receives ADD_ADDRESS or REMOVE_ADDRESS frames, or the
+/// server receives a REACH_OUT frame with a new address.
 #[derive(Debug, Clone)]
 pub enum Event {
     /// An ADD_ADDRESS frame was received.
@@ -786,20 +787,22 @@ impl ServerState {
     /// frame contains an IPv6 address while the local socket is IPv4-only.
     ///
     /// If a new round was started, the `NatTraversalProbeRetry` timer needs to be reset.
+    ///
+    /// Returns whether this added a new address to probe.
     pub(crate) fn handle_reach_out(
         &mut self,
         reach_out: ReachOut,
         ipv6: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let ReachOut { round, ip, port } = reach_out;
 
         if round < self.round {
             trace!(current_round=%self.round, "ignoring REACH_OUT for previous round");
-            return Ok(());
+            return Ok(false);
         }
         let Some(ip) = map_to_local_socket_family(ip, ipv6) else {
             trace!("Ignoring IPv6 REACH_OUT frame due to not supporting IPv6 locally");
-            return Ok(());
+            return Ok(false);
         };
 
         if round > self.round {
@@ -810,7 +813,7 @@ impl ServerState {
             self.pending_probes.clear();
         } else if self.remotes.contains_key(&(ip, port)) {
             // Retransmitted frame.
-            return Ok(());
+            return Ok(false);
         } else if self.remotes.len() >= self.max_remote_addresses {
             return Err(Error::TooManyAddresses);
         }
@@ -818,7 +821,7 @@ impl ServerState {
             .entry((ip, port))
             .or_insert(ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1));
         self.pending_probes.insert((ip, port));
-        Ok(())
+        Ok(true)
     }
 
     /// Re-queues probes that have not yet succeeded or reached [`MAX_NAT_PROBE_ATTEMPTS`].
