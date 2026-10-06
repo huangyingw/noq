@@ -1815,6 +1815,20 @@ fn path_recovers_after_silent_gap_via_keepalive() -> TestResult {
     Ok(())
 }
 
+/// Polls the next event of `side` that is not a NAT traversal event.
+///
+/// The server reports the client's REACH_OUT addresses as
+/// [`Event::NatTraversal`] events, which arrive before the path events these tests
+/// look for.
+fn poll_skipping_nat_traversal(pair: &mut ConnPair, side: crate::Side) -> Event {
+    loop {
+        let event = pair.poll(side).expect("should have event");
+        if !matches!(event, Event::NatTraversal(_)) {
+            return event;
+        }
+    }
+}
+
 /// Tests NAT traversal manages to open a 2nd path.
 #[test]
 fn test_simple_nat_traveral_opens_path() -> TestResult {
@@ -1848,7 +1862,7 @@ fn test_simple_nat_traveral_opens_path() -> TestResult {
     let event = pair.poll(Client).expect("should have event");
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
-    let event = pair.poll(Server).expect("should have event");
+    let event = poll_skipping_nat_traversal(&mut pair, Server);
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
     Ok(())
@@ -1906,7 +1920,7 @@ fn test_simple_nat_traversal_challenge_with_response() -> TestResult {
     let event = pair.poll(Client).expect("should have event");
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
-    let event = pair.poll(Server).expect("should have event");
+    let event = poll_skipping_nat_traversal(&mut pair, Server);
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
     Ok(())
@@ -1956,7 +1970,7 @@ fn test_hard_nat_client_opens_path() -> TestResult {
     let event = pair.poll(Client).expect("should have event");
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
-    let event = pair.poll(Server).expect("should have event");
+    let event = poll_skipping_nat_traversal(&mut pair, Server);
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
     Ok(())
@@ -2006,7 +2020,7 @@ fn test_hard_nat_server_opens_path() -> TestResult {
     let event = pair.poll(Client).expect("should have event");
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
-    let event = pair.poll(Server).expect("should have event");
+    let event = poll_skipping_nat_traversal(&mut pair, Server);
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
     Ok(())
@@ -2052,7 +2066,7 @@ fn test_peer_may_probe() -> TestResult {
     let event = pair.poll(Client).expect("should have event");
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
-    let event = pair.poll(Server).expect("should have event");
+    let event = poll_skipping_nat_traversal(&mut pair, Server);
     assert_matches!(event, Event::Path(PathEvent::Established { .. }));
 
     Ok(())

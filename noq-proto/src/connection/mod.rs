@@ -6256,27 +6256,30 @@ impl Connection {
                 .should_report(&self.peer_params.address_discovery_role);
         }
 
-        // ADD_ADDRESS
-        while space_id == SpaceId::Data
-            && !scheduling_info.is_abandoned
-            && scheduling_info.may_send_data
-            && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
-        {
-            if let Some(added_address) = space.pending.add_address.pop_last() {
-                builder.write_frame(added_address, stats);
-            } else {
-                break;
-            }
-        }
-
-        // REMOVE_ADDRESS
+        // REMOVE_ADDRESS, before ADD_ADDRESS: the client holds at most
+        // `max_remote_nat_traversal_addresses`, and a server replacing a batch of
+        // addresses must free the slots before the replacements arrive.
         while space_id == SpaceId::Data
             && !scheduling_info.is_abandoned
             && scheduling_info.may_send_data
             && frame::RemoveAddress::SIZE_BOUND <= builder.frame_space_remaining()
         {
-            if let Some(removed_address) = space.pending.remove_address.pop_last() {
+            if let Some(removed_address) = space.pending.remove_address.pop_first() {
                 builder.write_frame(removed_address, stats);
+            } else {
+                break;
+            }
+        }
+
+        // ADD_ADDRESS, lowest sequence number first, so the client learns the addresses
+        // in the order the server added them.
+        while space_id == SpaceId::Data
+            && !scheduling_info.is_abandoned
+            && scheduling_info.may_send_data
+            && frame::AddAddress::SIZE_BOUND <= builder.frame_space_remaining()
+        {
+            if let Some(added_address) = space.pending.add_address.pop_first() {
+                builder.write_frame(added_address, stats);
             } else {
                 break;
             }
