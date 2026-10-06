@@ -370,7 +370,9 @@ pub(crate) struct ClientState {
     ///
     /// They are stored in **canonical form**, not in socket-native form as usual. We may
     /// nave a reflexive address that is IPv6 even if our local socket can only handle IPv4.
-    local_addresses: FxHashSet<CanonicalIpPort>,
+    /// Kept in insertion order: REACH_OUT frames go out in this order, and the server
+    /// may rely on the first addresses being the "real" ones (see iroh's spraying).
+    local_addresses: Vec<CanonicalIpPort>,
     /// Current nat traversal round.
     round: VarInt,
     /// The probing attempt in the round.
@@ -418,11 +420,11 @@ impl ClientState {
 
     fn add_local_address(&mut self, address: SocketAddr) -> Result<(), Error> {
         let address = CanonicalIpPort::from(address);
-        if self.local_addresses.len() < self.max_local_addresses {
-            self.local_addresses.insert(address);
+        if self.local_addresses.contains(&address) {
+            // already known, no issues here
             Ok(())
-        } else if self.local_addresses.contains(&address) {
-            // at capacity, but the address is known, no issues here
+        } else if self.local_addresses.len() < self.max_local_addresses {
+            self.local_addresses.push(address);
             Ok(())
         } else {
             // at capacity and the address is new
@@ -432,7 +434,7 @@ impl ClientState {
 
     fn remove_local_address(&mut self, address: &IpPort) {
         let address = CanonicalIpPort::from(*address);
-        self.local_addresses.remove(&address);
+        self.local_addresses.retain(|a| *a != address);
     }
 
     /// Initiates a new nat traversal round.
