@@ -7150,14 +7150,14 @@ impl Connection {
         self.n0_nat_traversal.get_local_nat_traversal_addresses()
     }
 
-    /// Get the currently advertised nat traversal addresses by the server
+    /// Get the remote's nat traversal addresses, in announcement order.
+    ///
+    /// On the client these are the addresses the server advertised; on the server, the
+    /// addresses of the client's current REACH_OUT round.
     pub fn get_remote_nat_traversal_addresses(
         &self,
     ) -> Result<Vec<SocketAddr>, n0_nat_traversal::Error> {
-        Ok(self
-            .n0_nat_traversal
-            .client_side()?
-            .get_remote_nat_traversal_addresses())
+        self.n0_nat_traversal.get_remote_nat_traversal_addresses()
     }
 
     /// Initiates a new nat traversal round

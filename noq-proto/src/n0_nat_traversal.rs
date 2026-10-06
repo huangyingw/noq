@@ -238,6 +238,19 @@ impl State {
         }
     }
 
+    /// Returns the remote's nat traversal addresses, in the order they were announced.
+    ///
+    /// On the client these are the server's ADD_ADDRESS addresses ordered by sequence
+    /// number; on the server, the client's REACH_OUT addresses of the current round in
+    /// arrival order.
+    pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, Error> {
+        match self {
+            Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
+            Self::ClientSide(client_state) => Ok(client_state.get_remote_nat_traversal_addresses()),
+            Self::ServerSide(server_state) => Ok(server_state.get_remote_nat_traversal_addresses()),
+        }
+    }
+
     pub(crate) fn get_local_nat_traversal_addresses(&self) -> Result<Vec<SocketAddr>, Error> {
         match self {
             Self::NotNegotiated => Err(Error::ExtensionNotNegotiated),
@@ -604,10 +617,13 @@ impl ClientState {
     }
 
     pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
-        self.remote_addresses
-            .values()
-            .map(|(address, _)| (*address).as_canonical_addr())
-            .collect()
+        let mut addresses: Vec<(VarInt, SocketAddr)> = self
+            .remote_addresses
+            .iter()
+            .map(|(seq_no, (address, _))| (*seq_no, (*address).as_canonical_addr()))
+            .collect();
+        addresses.sort_by_key(|(seq_no, _)| *seq_no);
+        addresses.into_iter().map(|(_, address)| address).collect()
     }
 
     /// Marks a remote as successful if the response matches a sent probe.
@@ -727,6 +743,8 @@ pub(crate) struct ServerState {
     ///
     /// These are stored in the usual local-socket native form.
     remotes: FxHashMap<IpPort, ProbeState>,
+    /// The keys of [`Self::remotes`] in the order they were learned.
+    remote_order: Vec<IpPort>,
     /// The data of PATH_CHALLENGE frames sent in probes.
     ///
     /// These are cleared when a new round starts, so any late-arriving PATH_RESPONSEs will
@@ -751,6 +769,7 @@ impl ServerState {
             round: Default::default(),
             attempt: 0,
             remotes: Default::default(),
+            remote_order: Default::default(),
             sent_challenges: Default::default(),
             pending_probes: Default::default(),
         }
@@ -811,6 +830,7 @@ impl ServerState {
             self.round = round;
             self.attempt = 0;
             self.remotes.clear();
+            self.remote_order.clear();
             self.sent_challenges.clear();
             self.pending_probes.clear();
         } else if self.remotes.contains_key(&(ip, port)) {
@@ -822,8 +842,17 @@ impl ServerState {
         self.remotes
             .entry((ip, port))
             .or_insert(ProbeState::Active(MAX_NAT_PROBE_ATTEMPTS - 1));
+        self.remote_order.push((ip, port));
         self.pending_probes.insert((ip, port));
         Ok(true)
+    }
+
+    /// Returns the client's addresses of the current round, in the order they arrived.
+    pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
+        self.remote_order
+            .iter()
+            .map(|(ip, port)| SocketAddr::new(*ip, *port))
+            .collect()
     }
 
     /// Re-queues probes that have not yet succeeded or reached [`MAX_NAT_PROBE_ATTEMPTS`].
@@ -864,7 +893,9 @@ impl ServerState {
             let remote = (src.remote().ip(), src.remote().port());
             if *entry.get() == remote {
                 entry.remove();
-                self.remotes.insert(remote, ProbeState::Succeeded);
+                if self.remotes.insert(remote, ProbeState::Succeeded).is_none() {
+                    self.remote_order.push(remote);
+                }
                 return true;
             } else {
                 debug!(
