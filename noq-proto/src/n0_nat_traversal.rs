@@ -848,10 +848,13 @@ impl ServerState {
     }
 
     /// Returns the client's addresses of the current round, in the order they arrived.
+    ///
+    /// Canonical addresses, like the client side returns: the remotes are stored in the
+    /// local socket's family (IPv4-mapped IPv6 on a dual-stack socket).
     pub(crate) fn get_remote_nat_traversal_addresses(&self) -> Vec<SocketAddr> {
         self.remote_order
             .iter()
-            .map(|(ip, port)| SocketAddr::new(*ip, *port))
+            .map(|(ip, port)| SocketAddr::new(ip.to_canonical(), *port))
             .collect()
     }
 
