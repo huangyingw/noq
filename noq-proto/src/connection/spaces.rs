@@ -818,11 +818,21 @@ impl PendingReachOutFrames {
         self.frames.append(&mut other.frames);
     }
 
+    /// Takes the oldest pending frame if `predicate` accepts it.
+    ///
+    /// Frames leave in the order they were pushed: the client's addresses are announced
+    /// in the order it added them, which the server may rely on (see
+    /// `get_remote_nat_traversal_addresses`).
     pub(crate) fn pop_if(
         &mut self,
         predicate: impl FnOnce(&mut frame::ReachOut) -> bool,
     ) -> Option<frame::ReachOut> {
-        self.frames.pop_if(predicate)
+        let first = self.frames.first_mut()?;
+        if predicate(first) {
+            Some(self.frames.remove(0))
+        } else {
+            None
+        }
     }
 }
 
